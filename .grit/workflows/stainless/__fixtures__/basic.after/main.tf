@@ -20,10 +20,8 @@ resource "cloudflare_access_application" "staging_app" {
   session_duration = "24h"
 
   # cors is a currently a block list
-  cors_headers = {
-    allowed_methods   = "GET"
+  cors_headers = { allowed_methods = "GET"
     allowed_origins   = "https://example.com"
     allow_credentials = true
-    max_age           = 10
-  }
+  max_age = 10 }
 }

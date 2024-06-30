@@ -7,6 +7,8 @@ note: This workflow is used as input for the autogen pipeline. Use it to generat
 The goal of this workflow is to migrate between two Terraform provider versions for the `Cloudflare` API.
 Your job is to generate a GritQL migration that can handle upgrading between the two provider versions.
 
+We will be upgrading to the `v5` workflow. The migration should be named `cloudflare_terraform_v5`.
+
 ### 1. Attribute mapping
 
 The respective Terraform provider schema diffs have been dumped to `new.json` and `old.json`.
@@ -39,9 +41,5 @@ Here is an example for the above attribute:
 ```grit
 language hcl
 
-`resource "cloudflare_access_application" $_ { $attr }` where {
-  $attr <: contains bubble or {
-    `cors_headers { $block }` => `cors_headers = { $block }`
-  }
-}
+`cors_headers { $block }` => `cors_headers = { $block }` where { $block <: within `resource "cloudflare_access_application" $_ { $_ }` }
 ```
