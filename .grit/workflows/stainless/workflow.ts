@@ -128,6 +128,14 @@ const schema = {
   type: "object" as const,
   properties: {
     old_schema_path: { type: "string", default: "old.json" },
+    new_schema_path: { type: "string", default: "new.json" },
+    purpose: {
+      type: "string",
+      enum: ["upload_baseline", "make_migration"],
+      description:
+        "Specifies whether to generate the old schema or edit the new schema",
+      default: "make_migration",
+    },
   },
   required: [],
 } satisfies JSONSchema7;
@@ -184,9 +192,7 @@ export default await sdk.defineWorkflow<typeof schema>({
     const targetDir = process.cwd();
     const oldSchemaPath = path.resolve(targetDir, options.old_schema_path);
 
-    const generateOld = false;
-
-    if (generateOld) {
+    if (options.purpose === "upload_baseline") {
       const oldSchema = await generateSchema({
         targetDir,
         providerPath: null,
