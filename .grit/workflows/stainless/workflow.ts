@@ -123,15 +123,6 @@ function findListNestingModeBlockTypes(
   return results;
 }
 
-const schema = {
-  $schema: "https://json-schema.org/draft/2020-12/schema",
-  type: "object" as const,
-  properties: {
-    old_schema_path: { type: "string", default: "old.json" },
-  },
-  required: [],
-} satisfies JSONSchema7;
-
 async function generateSchema({
   targetDir,
   providerPath,
@@ -178,11 +169,15 @@ async function buildProvider({ targetDir }: { targetDir: string }) {
 
 export default await sdk.defineWorkflow<typeof schema>({
   name: "workflow",
-  options: schema,
+  options: {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    type: "object" as const,
+    properties: {},
+    required: [],
+  },
 
   run: async (options) => {
     const targetDir = process.cwd();
-    const oldSchemaPath = path.resolve(targetDir, options.old_schema_path);
 
     // First we generate the old schema
     const oldSchemaData = await generateSchema({
