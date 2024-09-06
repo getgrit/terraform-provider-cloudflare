@@ -128,13 +128,6 @@ const schema = {
   type: "object" as const,
   properties: {
     old_schema_path: { type: "string", default: "old.json" },
-    task: {
-      type: "string",
-      enum: ["upload_baseline", "make_migration"],
-      description:
-        "Specifies whether to generate the old schema or edit the new schema",
-      default: "make_migration",
-    },
   },
   required: [],
 } satisfies JSONSchema7;
@@ -190,40 +183,23 @@ export default await sdk.defineWorkflow<typeof schema>({
   run: async (options) => {
     const targetDir = process.cwd();
     const oldSchemaPath = path.resolve(targetDir, options.old_schema_path);
-    const oldSchemaUrl = `gs://grit-workflows-dev-workflow_artifacts/github.com/cloudflare/terraform-provider-cloudflare/old_schema.json`;
 
-    if (options.task === "upload_baseline") {
-      const oldSchema = await generateSchema({
-        targetDir,
-        providerPath: null,
-      });
-      await grit.stdlib.writeFile(
-        {
-          path: oldSchemaPath,
-          content: oldSchema,
-        },
-        {}
-      );
-      await $`gsutil cp ${oldSchemaPath} ${oldSchemaUrl}`;
-      // make it publicly readable
-      await $`gsutil setmeta -h "Cache-Control: public, max-age=1" ${oldSchemaUrl}`;
-      return { success: true };
-    }
-
-    // Download the old schema
-    await $`gsutil cp ${oldSchemaUrl} ${oldSchemaPath}`;
-
-    const oldSchemaData = await fs.promises.readFile(oldSchemaPath, "utf-8");
+    // First we generate the old schema
+    const oldSchemaData = await generateSchema({
+      targetDir,
+      providerPath: null,
+    });
     const oldSchema = CloudflareSchema.parse(JSON.parse(oldSchemaData));
 
+    // Then we generate the new schema
     await buildProvider({ targetDir });
     const newSchemaData = await generateSchema({
       targetDir,
       providerPath: targetDir,
     });
-
     const newSchema = CloudflareSchema.parse(JSON.parse(newSchemaData));
 
+    // Now we compare the two schemas
     const results = findListNestingModeBlockTypes(oldSchema, newSchema);
 
     // @ts-expect-error
