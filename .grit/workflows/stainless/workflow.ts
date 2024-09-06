@@ -128,8 +128,7 @@ const schema = {
   type: "object" as const,
   properties: {
     old_schema_path: { type: "string", default: "old.json" },
-    new_schema_path: { type: "string", default: "new.json" },
-    purpose: {
+    task: {
       type: "string",
       enum: ["upload_baseline", "make_migration"],
       description:
@@ -191,8 +190,9 @@ export default await sdk.defineWorkflow<typeof schema>({
   run: async (options) => {
     const targetDir = process.cwd();
     const oldSchemaPath = path.resolve(targetDir, options.old_schema_path);
+    const oldSchemaUrl = `gs://grit-workflows-dev-workflow_artifacts/github.com/cloudflare/terraform-provider-cloudflare/old_schema.json`;
 
-    if (options.purpose === "upload_baseline") {
+    if (options.task === "upload_baseline") {
       const oldSchema = await generateSchema({
         targetDir,
         providerPath: null,
@@ -204,8 +204,14 @@ export default await sdk.defineWorkflow<typeof schema>({
         },
         {}
       );
+      await $`gsutil cp ${oldSchemaPath} ${oldSchemaUrl}`;
+      // make it publicly readable
+      await $`gsutil setmeta -h "Cache-Control: public, max-age=1" ${oldSchemaUrl}`;
       return { success: true };
     }
+
+    // Download the old schema
+    await $`gsutil cp ${oldSchemaUrl} ${oldSchemaPath}`;
 
     const oldSchemaData = await fs.promises.readFile(oldSchemaPath, "utf-8");
     const oldSchema = CloudflareSchema.parse(JSON.parse(oldSchemaData));
