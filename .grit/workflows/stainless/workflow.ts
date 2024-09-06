@@ -163,6 +163,7 @@ async function generateSchema({
 }
 
 async function buildProvider({ targetDir }: { targetDir: string }) {
+  grit.logging.info("Building provider");
   await $`go get github.com/cloudflare/cloudflare-go/v2@next`.cwd(targetDir);
   await $`go build -o terraform-provider-cloudflare .`.cwd(targetDir);
 }
