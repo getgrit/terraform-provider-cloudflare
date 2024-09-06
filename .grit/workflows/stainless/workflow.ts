@@ -136,14 +136,40 @@ const schema = {
 async function generateSchema({
   outPath,
   targetDir,
+  providerPath,
 }: {
   outPath: string;
   targetDir: string;
+  providerPath: string | null;
 }) {
-  const result = await $`terraform providers schema -json > ${outPath}`.cwd(
-    path.join(targetDir, "examples/provider")
-  );
-  console.log(result);
+  if (providerPath) {
+    const config = `provider_installation {
+  dev_overrides {
+    "cloudflare/cloudflare" = "${providerPath}"
+  }
+  direct {}
+}`;
+    await grit.stdlib.writeFile(
+      {
+        path: ".grit/workflows/stainless/dev.tfrc",
+        content: config,
+      },
+      {}
+    );
+  }
+  const result = await $`terraform providers schema -json > ${outPath}`
+    .cwd(path.join(targetDir, "examples/provider"))
+    .env(
+      providerPath
+        ? {
+            TF_CLI_CONFIG_FILE: path.join(
+              targetDir,
+              ".grit/workflows/stainless/dev.tfrc"
+            ),
+          }
+        : {}
+    )
+    .text();
 }
 
 export default await sdk.defineWorkflow<typeof schema>({
@@ -157,7 +183,11 @@ export default await sdk.defineWorkflow<typeof schema>({
 
     const oldSchemaPath = path.resolve(process.cwd(), options.old_schema_path);
 
-    await generateSchema({ outPath: oldSchemaPath, targetDir: process.cwd() });
+    await generateSchema({
+      outPath: oldSchemaPath,
+      targetDir: process.cwd(),
+      // providerPath: "pwd",
+    });
     return { success: true };
 
     const newSchemaPath = path.resolve(process.cwd(), options.new_schema_path);
