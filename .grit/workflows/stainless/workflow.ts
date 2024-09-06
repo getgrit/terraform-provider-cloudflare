@@ -167,7 +167,7 @@ async function buildProvider({ targetDir }: { targetDir: string }) {
   await $`go build -o terraform-provider-cloudflare .`.cwd(targetDir);
 }
 
-export default await sdk.defineWorkflow<typeof schema>({
+export default await sdk.defineWorkflow({
   name: "workflow",
   options: {
     $schema: "https://json-schema.org/draft/2020-12/schema",
