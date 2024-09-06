@@ -128,17 +128,14 @@ const schema = {
   type: "object" as const,
   properties: {
     old_schema_path: { type: "string", default: "old.json" },
-    new_schema_path: { type: "string", default: "new.json" },
   },
   required: [],
 } satisfies JSONSchema7;
 
 async function generateSchema({
-  outPath,
   targetDir,
   providerPath,
 }: {
-  outPath: string;
   targetDir: string;
   providerPath: string | null;
 }) {
@@ -157,7 +154,8 @@ async function generateSchema({
       {}
     );
   }
-  const result = await $`terraform providers schema -json > ${outPath}`
+  await $`terraform init`.cwd(path.join(targetDir, "examples/provider"));
+  const text = await $`terraform providers schema -json`
     .cwd(path.join(targetDir, "examples/provider"))
     .env(
       providerPath
@@ -170,6 +168,12 @@ async function generateSchema({
         : {}
     )
     .text();
+  return text;
+}
+
+async function buildProvider({ targetDir }: { targetDir: string }) {
+  await $`go get github.com/cloudflare/cloudflare-go/v2@next`.cwd(targetDir);
+  await $`go build -o terraform-provider-cloudflare .`.cwd(targetDir);
 }
 
 export default await sdk.defineWorkflow<typeof schema>({
@@ -177,23 +181,35 @@ export default await sdk.defineWorkflow<typeof schema>({
   options: schema,
 
   run: async (options) => {
-    grit.logging.info(
-      "Generating a GritQL migration for the provided Terraform schema"
-    );
+    const targetDir = process.cwd();
+    const oldSchemaPath = path.resolve(targetDir, options.old_schema_path);
 
-    const oldSchemaPath = path.resolve(process.cwd(), options.old_schema_path);
+    const generateOld = false;
 
-    await generateSchema({
-      outPath: oldSchemaPath,
-      targetDir: process.cwd(),
-      // providerPath: "pwd",
-    });
-    return { success: true };
+    if (generateOld) {
+      const oldSchema = await generateSchema({
+        targetDir,
+        providerPath: null,
+      });
+      await grit.stdlib.writeFile(
+        {
+          path: oldSchemaPath,
+          content: oldSchema,
+        },
+        {}
+      );
+      return { success: true };
+    }
 
-    const newSchemaPath = path.resolve(process.cwd(), options.new_schema_path);
     const oldSchemaData = await fs.promises.readFile(oldSchemaPath, "utf-8");
-    const newSchemaData = await fs.promises.readFile(newSchemaPath, "utf-8");
     const oldSchema = CloudflareSchema.parse(JSON.parse(oldSchemaData));
+
+    await buildProvider({ targetDir });
+    const newSchemaData = await generateSchema({
+      targetDir,
+      providerPath: targetDir,
+    });
+
     const newSchema = CloudflareSchema.parse(JSON.parse(newSchemaData));
 
     const results = findListNestingModeBlockTypes(oldSchema, newSchema);
