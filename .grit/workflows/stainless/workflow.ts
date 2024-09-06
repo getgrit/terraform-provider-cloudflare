@@ -3,6 +3,7 @@ import type { JSONSchema7 } from "json-schema";
 import * as grit from "@getgrit/api";
 import path from "node:path";
 import fs from "node:fs";
+import { $ } from "bun";
 
 import { z } from "zod";
 
@@ -126,11 +127,24 @@ const schema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   type: "object" as const,
   properties: {
-    old_schema_path: { type: "string", default: "new.json" },
-    new_schema_path: { type: "string", default: "old.json" },
+    old_schema_path: { type: "string", default: "old.json" },
+    new_schema_path: { type: "string", default: "new.json" },
   },
   required: [],
 } satisfies JSONSchema7;
+
+async function generateSchema({
+  outPath,
+  targetDir,
+}: {
+  outPath: string;
+  targetDir: string;
+}) {
+  const result = await $`terraform providers schema -json > ${outPath}`.cwd(
+    path.join(targetDir, "examples/provider")
+  );
+  console.log(result);
+}
 
 export default await sdk.defineWorkflow<typeof schema>({
   name: "workflow",
@@ -142,6 +156,10 @@ export default await sdk.defineWorkflow<typeof schema>({
     );
 
     const oldSchemaPath = path.resolve(process.cwd(), options.old_schema_path);
+
+    await generateSchema({ outPath: oldSchemaPath, targetDir: process.cwd() });
+    return { success: true };
+
     const newSchemaPath = path.resolve(process.cwd(), options.new_schema_path);
     const oldSchemaData = await fs.promises.readFile(oldSchemaPath, "utf-8");
     const newSchemaData = await fs.promises.readFile(newSchemaPath, "utf-8");
