@@ -1,5 +1,5 @@
 import * as sdk from "@getgrit/workflows-sdk";
-import type { JSONSchema7 } from "json-schema";
+import { utils } from "@getgrit/workflows";
 import * as grit from "@getgrit/api";
 import path from "node:path";
 import fs from "node:fs";
@@ -167,6 +167,28 @@ async function buildProvider({ targetDir }: { targetDir: string }) {
   await $`go build -o terraform-provider-cloudflare .`.cwd(targetDir);
 }
 
+async function installTerraform() {
+  const platform = process.platform;
+  const arch = process.arch === "x64" ? "amd64" : process.arch;
+
+  if (platform === "darwin") {
+    const url = `https://releases.hashicorp.com/terraform/1.5.7/terraform_1.5.7_darwin_${arch}.zip`;
+    const zipPath = "/tmp/terraform.zip";
+    await $`curl -o ${zipPath} ${url}`;
+    await $`tar -xzf ${zipPath} -C /usr/local/bin`;
+    await $`rm ${zipPath}`;
+    await $`chmod +x /usr/local/bin/terraform`;
+  } else if (platform === "linux") {
+    await $`curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg`;
+    await $`echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/hashicorp.list`;
+    await $`apt update && apt install terraform`;
+  } else {
+    throw new Error(`Unsupported platform: ${platform}`);
+  }
+
+  grit.logging.info("Terraform installed successfully");
+}
+
 export default await sdk.defineWorkflow({
   name: "workflow",
   options: {
@@ -177,44 +199,51 @@ export default await sdk.defineWorkflow({
   },
 
   run: async (options) => {
-    const targetDir = process.cwd();
+    try {
+      const { targetDir } = await utils.initWorkspace(options);
 
-    // First we generate the old schema
-    const oldSchemaData = await generateSchema({
-      targetDir,
-      providerPath: null,
-    });
-    const oldSchema = CloudflareSchema.parse(JSON.parse(oldSchemaData));
+      await installTerraform();
 
-    // Then we generate the new schema
-    await buildProvider({ targetDir });
-    const newSchemaData = await generateSchema({
-      targetDir,
-      providerPath: targetDir,
-    });
-    const newSchema = CloudflareSchema.parse(JSON.parse(newSchemaData));
+      // First we generate the old schema
+      const oldSchemaData = await generateSchema({
+        targetDir,
+        providerPath: null,
+      });
+      const oldSchema = CloudflareSchema.parse(JSON.parse(oldSchemaData));
+      grit.logging.info("Old schema generated");
 
-    // Now we compare the two schemas
-    const results = findListNestingModeBlockTypes(oldSchema, newSchema);
+      // Then we generate the new schema
+      await buildProvider({ targetDir });
+      const newSchemaData = await generateSchema({
+        targetDir,
+        providerPath: targetDir,
+      });
+      const newSchema = CloudflareSchema.parse(JSON.parse(newSchemaData));
+      grit.logging.info("New schema generated");
 
-    // @ts-expect-error
-    const uniqueResults = Array.from(new Set(results.map(JSON.stringify))).map(
+      // Now we compare the two schemas
+      const results = findListNestingModeBlockTypes(oldSchema, newSchema);
+
       // @ts-expect-error
-      JSON.parse
-    );
+      const uniqueResults = Array.from(
+        new Set(results.map(JSON.stringify))
+      ).map(
+        // @ts-expect-error
+        JSON.parse
+      );
 
-    grit.logging.info(
-      `Found ${uniqueResults.length} resources with list/set nesting mode block types`
-    );
+      grit.logging.info(
+        `Found ${uniqueResults.length} resources with list/set nesting mode block types`
+      );
 
-    const subqueries = uniqueResults.map(
-      ({ resource, attribute, nestingMode }) =>
-        nestingMode === "list"
-          ? `  inline_cloudflare_block_to_list(\`${attribute}\`) as $block where { $block <: within \`resource "${resource}" $_ { $_ }\` }`
-          : `  inline_cloudflare_block_to_map(\`${attribute}\`) as $block where { $block <: within \`resource "${resource}" $_ { $_ }\` }`
-    );
+      const subqueries = uniqueResults.map(
+        ({ resource, attribute, nestingMode }) =>
+          nestingMode === "list"
+            ? `  inline_cloudflare_block_to_list(\`${attribute}\`) as $block where { $block <: within \`resource "${resource}" $_ { $_ }\` }`
+            : `  inline_cloudflare_block_to_map(\`${attribute}\`) as $block where { $block <: within \`resource "${resource}" $_ { $_ }\` }`
+      );
 
-    const query = `
+      const query = `
 language hcl
 
 pattern terraform_cloudflare_v5_block_to_attribute() {
@@ -223,17 +252,27 @@ ${subqueries.join(",\n")}
   }
 }`;
 
-    await grit.stdlib.writeFile(
-      {
-        path: `.grit/patterns/terraform_cloudflare_v5_block_to_attribute.grit`,
-        content: query,
-      },
-      {}
-    );
+      await grit.stdlib.writeFile(
+        {
+          path: `.grit/patterns/terraform_cloudflare_v5_block_to_attribute.grit`,
+          content: query,
+        },
+        {}
+      );
 
-    return {
-      success: true,
-      subqueries,
-    };
+      return {
+        success: true,
+        subqueries,
+      };
+    } catch (error) {
+      grit.logging.error(`Unexpected error: ${error.message}`, {
+        error,
+        details: JSON.stringify(error, null, 2),
+      });
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
   },
 });
